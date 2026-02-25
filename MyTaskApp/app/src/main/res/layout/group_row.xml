@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="128dp">
+
+    <TextView
+        android:id="@+id/groupNameTextView_id"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginBottom="5dp"
+        android:layout_weight="1"
+        android:fontFamily="sans-serif-black"
+        android:gravity="bottom|center_horizontal"
+        android:text="Party on Campus"
+        android:textSize="20sp" />
+
+    <View
+        android:id="@+id/view"
+        android:layout_width="match_parent"
+        android:layout_height="1px"
+        android:layout_marginStart="50dp"
+        android:layout_marginEnd="50dp"
+        android:layout_weight="0"
+        android:background="#242424" />
+
+    <TextView
+        android:id="@+id/groupCountTextView_id"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="3dp"
+        android:layout_weight=".7"
+        android:gravity="center_horizontal|top"
+        android:text="17 Active Items"
+        android:textColor="#626262" />
+
+    <View
+        android:id="@+id/dividerView_id"
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_weight="0"
+        android:background="#FF5722" />
+</LinearLayout>
