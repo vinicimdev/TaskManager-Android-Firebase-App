@@ -6,28 +6,21 @@ import android.view.KeyEvent
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.textfield.TextInputEditText
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.DatabaseReference
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ValueEventListener
-import com.vfs.mytaskapp.TaskListener
-import com.vfs.mytaskapp.TasksAdapter
+import com.google.firebase.database.*
 
 class TasksActivity : AppCompatActivity(), TaskListener {
 
-    // Firebase
     private lateinit var auth: FirebaseAuth
     private lateinit var database: FirebaseDatabase
-    // This reference will now point to /users/{uid}/groups/{gid}/tasks
     private lateinit var groupTasksRef: DatabaseReference
 
-    // Group and UI
-    private var thisGroup: Group? = null
+    private var groupId: String? = null
     private lateinit var tasksAdapter: TasksAdapter
     private lateinit var newTaskEditText: EditText
 
@@ -38,110 +31,87 @@ class TasksActivity : AppCompatActivity(), TaskListener {
         auth = FirebaseAuth.getInstance()
         database = FirebaseDatabase.getInstance()
 
-        // --- Receiving Group Info ---
-        val groupId = intent.getStringExtra("GROUP_ID")
+        groupId = intent.getStringExtra("GROUP_ID")
         val groupName = intent.getStringExtra("GROUP_NAME")
 
-        val currentUser = auth.currentUser
-        if (currentUser == null || groupId == null) {
-            Toast.makeText(this, "Error: User not logged in or group not found.", Toast.LENGTH_LONG).show()
+        if (auth.currentUser == null || groupId == null) {
             finish()
             return
         }
 
-        thisGroup = Group(groupId, groupName)
-        val grpTextView = findViewById<TextView>(R.id.grpNameTextView_id)
-        grpTextView.text = groupName
+        findViewById<TextView>(R.id.grpNameTextView_id).text = groupName
 
-        // --- FIXED: Database Reference ---
-        // Point to the 'tasks' node *inside* the specific group.
-        groupTasksRef = database.reference
-            .child("users")
-            .child(currentUser.uid)
-            .child("groups") // Point to 'groups'
-            .child(groupId)  // Find the specific group
-            .child("tasks")  // And then its 'tasks' child
+        groupTasksRef = database.reference.child("groups").child(groupId!!).child("tasks")
 
-        // --- RecyclerView and Adapter ---
         val tasksRv = findViewById<RecyclerView>(R.id.tasksRv_id)
         tasksRv.layoutManager = LinearLayoutManager(this)
         tasksAdapter = TasksAdapter(this)
         tasksRv.adapter = tasksAdapter
 
-        // --- UI Setup ---
         newTaskEditText = findViewById(R.id.editTextText)
         setupAddTaskListener()
-
-        // Fetch tasks from Firebase
         fetchGroupTasks()
     }
 
     private fun fetchGroupTasks() {
         groupTasksRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val tasksList = mutableListOf<Task>()
-                for (taskSnapshot in snapshot.children) {
-                    val task = taskSnapshot.getValue(Task::class.java)
-                    task?.let { tasksList.add(it) }
-                }
-                Log.d("TasksActivity", "Fetched ${tasksList.size} tasks from inside the group.")
+                val tasksList = snapshot.children.mapNotNull { it.getValue(Task::class.java) }
                 tasksAdapter.updateData(tasksList)
             }
-
-            override fun onCancelled(error: DatabaseError) {
-                Log.e("TasksActivity", "Failed to fetch tasks: ${error.message}")
-                Toast.makeText(baseContext, "Failed to load tasks.", Toast.LENGTH_SHORT).show()
-            }
+            override fun onCancelled(error: DatabaseError) {}
         })
     }
 
     private fun setupAddTaskListener() {
         newTaskEditText.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN) {
-                addNewTask()
+                val taskName = newTaskEditText.text.toString().trim()
+                if (taskName.isNotEmpty()) {
+                    val taskId = groupTasksRef.push().key ?: return@setOnKeyListener true
+                    val newTask = Task(taskId, taskName, false)
+                    groupTasksRef.child(taskId).setValue(newTask)
+                    newTaskEditText.text.clear()
+                }
                 return@setOnKeyListener true
             }
             false
         }
     }
 
-    private fun addNewTask() {
-        val taskName = newTaskEditText.text.toString().trim()
-        if (taskName.isEmpty()) {
-            Toast.makeText(this, "Task name cannot be empty", Toast.LENGTH_SHORT).show()
-            return
+    override fun taskClicked(task: Task) {
+        task.taskId?.let {
+            groupTasksRef.child(it).child("completed").setValue(!task.completed)
         }
-
-        val taskId = groupTasksRef.push().key
-        if (taskId == null) {
-            Toast.makeText(this, "Could not create task ID.", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val newTask = Task(taskId, taskName, false)
-        groupTasksRef.child(taskId).setValue(newTask)
-            .addOnSuccessListener {
-                Toast.makeText(this, "Task added!", Toast.LENGTH_SHORT).show()
-                newTaskEditText.text.clear()
-            }
-            .addOnFailureListener { e ->
-                Toast.makeText(this, "Failed to add task: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
     }
 
     override fun taskLongClicked(task: Task) {
-        task.taskId?.let {
-            groupTasksRef.child(it).removeValue()
-                .addOnSuccessListener {
-                    Toast.makeText(this, "Task removed", Toast.LENGTH_SHORT).show()
+        val options = arrayOf("Rename Task", "Delete Task", "Cancel")
+        AlertDialog.Builder(this)
+            .setTitle("Options for ${task.name}")
+            .setItems(options) { dialog, which ->
+                when (which) {
+                    0 -> showRenameTaskDialog(task)
+                    1 -> task.taskId?.let { groupTasksRef.child(it).removeValue() }
                 }
-        }
+                dialog.dismiss()
+            }
+            .show()
     }
 
-    override fun taskClicked(task: Task) {
-        task.taskId?.let {
-            val newCompletedStatus = !task.completed
-            groupTasksRef.child(it).child("completed").setValue(newCompletedStatus)
-        }
+    private fun showRenameTaskDialog(task: Task) {
+        val input = TextInputEditText(this)
+        input.setText(task.name)
+        AlertDialog.Builder(this)
+            .setTitle("Rename Task")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val newName = input.text.toString().trim()
+                if (newName.isNotEmpty() && task.taskId != null) {
+                    groupTasksRef.child(task.taskId!!).child("name").setValue(newName)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 }
